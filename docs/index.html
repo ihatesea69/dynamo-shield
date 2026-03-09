@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dynamo Shield — Fine-Grained Access Control for DynamoDB</title>
+  <meta name="description" content="Terraform-powered Fine-Grained Access Control for Amazon DynamoDB. Eliminate proxy tiers, enforce row & attribute-level security with IAM conditions and Cognito federation." />
+  <meta property="og:title" content="Dynamo Shield" />
+  <meta property="og:description" content="Fine-Grained Access Control for Amazon DynamoDB via Terraform + IAM" />
+  <meta property="og:image" content="https://raw.githubusercontent.com/ihatesea69/dynamo-shield/master/docs/og-image.png" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+
+  <style>
+    /* ===== RESET & TOKENS ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0e1a;
+      --bg2:       #0f1525;
+      --bg3:       #141b2e;
+      --surface:   #1a2340;
+      --border:    #243050;
+      --accent:    #ff9900;   /* AWS orange */
+      --accent2:   #00c7b7;   /* teal */
+      --blue:      #4d9fec;
+      --purple:    #9b59b6;
+      --green:     #27ae60;
+      --red:       #e74c3c;
+      --text:      #e8edf5;
+      --muted:     #8899bb;
+      --code-bg:   #0d1117;
+      --radius:    12px;
+      --shadow:    0 8px 32px rgba(0,0,0,.5);
+      --glow:      0 0 30px rgba(255,153,0,.15);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    /* ===== SCROLLBAR ===== */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg2); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ===== NAV ===== */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem;
+      height: 64px;
+      background: rgba(10,14,26,.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      display: flex; align-items: center; gap: .6rem;
+      font-size: 1.15rem; font-weight: 700; color: var(--text);
+      text-decoration: none;
+    }
+    .nav-logo .shield { font-size: 1.4rem; }
+
+    .nav-links { display: flex; align-items: center; gap: 1.8rem; }
+    .nav-links a {
+      color: var(--muted); text-decoration: none; font-size: .9rem;
+      transition: color .2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: .5rem;
+      padding: .55rem 1.2rem;
+      border-radius: 8px;
+      font-size: .875rem; font-weight: 600;
+      text-decoration: none; cursor: pointer; border: none;
+      transition: all .2s;
+    }
+    .btn-primary {
+      background: var(--accent); color: #000;
+    }
+    .btn-primary:hover { background: #ffb733; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(255,153,0,.4); }
+    .btn-ghost {
+      background: transparent; color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { background: var(--surface); transform: translateY(-1px); }
+
+    /* ===== HERO ===== */
+    .hero {
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center;
+      padding: 7rem 1.5rem 4rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* animated grid */
+    .hero::before {
+      content: '';
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(255,153,0,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,153,0,.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 40%, transparent 100%);
+    }
+
+    /* floating orbs */
+    .orb {
+      position: absolute; border-radius: 50%; filter: blur(80px);
+      animation: float 8s ease-in-out infinite;
+      pointer-events: none;
+    }
+    .orb-1 { width: 400px; height: 400px; background: rgba(255,153,0,.08); top: 10%; left: 15%; animation-delay: 0s; }
+    .orb-2 { width: 300px; height: 300px; background: rgba(0,199,183,.06); top: 20%; right: 15%; animation-delay: -3s; }
+    .orb-3 { width: 350px; height: 350px; background: rgba(77,159,236,.05); bottom: 10%; left: 30%; animation-delay: -6s; }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-30px) scale(1.05); }
+    }
+
+    .hero-content { position: relative; z-index: 1; max-width: 860px; }
+
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: .5rem;
+      padding: .35rem 1rem;
+      background: rgba(255,153,0,.1); border: 1px solid rgba(255,153,0,.3);
+      border-radius: 20px; font-size: .8rem; color: var(--accent);
+      margin-bottom: 1.5rem; font-weight: 600;
+      letter-spacing: .05em; text-transform: uppercase;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.4rem, 6vw, 4.2rem);
+      font-weight: 800; line-height: 1.15;
+      letter-spacing: -.02em;
+      margin-bottom: 1.2rem;
+    }
+
+    .gradient-text {
+      background: linear-gradient(135deg, var(--accent) 0%, #ffcc44 50%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      font-size: clamp(1rem, 2.5vw, 1.2rem);
+      color: var(--muted); max-width: 640px; margin: 0 auto 2rem;
+    }
+
+    .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-bottom: 3.5rem; }
+
+    .hero-stats {
+      display: flex; gap: 2.5rem; justify-content: center; flex-wrap: wrap;
+    }
+    .stat { text-align: center; }
+    .stat-value { font-size: 1.6rem; font-weight: 800; color: var(--accent); }
+    .stat-label { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+
+    /* ===== SECTION ===== */
+    section { padding: 5rem 1.5rem; }
+    .container { max-width: 1100px; margin: 0 auto; }
+
+    .section-label {
+      display: inline-block;
+      font-size: .75rem; font-weight: 700; letter-spacing: .12em;
+      text-transform: uppercase; color: var(--accent);
+      margin-bottom: .75rem;
+    }
+    .section-title {
+      font-size: clamp(1.8rem, 4vw, 2.6rem);
+      font-weight: 800; letter-spacing: -.02em;
+      margin-bottom: 1rem; line-height: 1.2;
+    }
+    .section-sub { font-size: 1.05rem; color: var(--muted); max-width: 600px; }
+
+    .section-head { margin-bottom: 3.5rem; }
+
+    /* ===== PROBLEM → SOLUTION ===== */
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 3rem;
+      align-items: center;
+    }
+    @media (max-width: 768px) { .split { grid-template-columns: 1fr; } }
+
+    .arch-box {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: .82rem;
+      line-height: 1.8;
+    }
+    .arch-box .label {
+      font-size: .7rem; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; margin-bottom: .8rem;
+    }
+    .bad .label { color: var(--red); }
+    .good .label { color: var(--green); }
+
+    .arch-row { display: flex; align-items: center; gap: .5rem; }
+    .arch-node {
+      padding: .3rem .7rem;
+      border-radius: 6px;
+      font-size: .78rem; font-weight: 600;
+    }
+    .node-app   { background: rgba(77,159,236,.15); color: var(--blue); border: 1px solid rgba(77,159,236,.3); }
+    .node-proxy { background: rgba(231,76,60,.15);  color: var(--red);  border: 1px solid rgba(231,76,60,.3); }
+    .node-db    { background: rgba(255,153,0,.15);  color: var(--accent); border: 1px solid rgba(255,153,0,.3); }
+    .node-iam   { background: rgba(0,199,183,.15);  color: var(--accent2); border: 1px solid rgba(0,199,183,.3); }
+    .node-sts   { background: rgba(155,89,182,.15); color: var(--purple); border: 1px solid rgba(155,89,182,.3); }
+    .arrow { color: var(--muted); font-size: .85rem; }
+    .strike { text-decoration: line-through; opacity: .5; }
+    .note { font-size: .72rem; color: var(--muted); margin-top: .6rem; }
+
+    /* ===== POLICY CARDS ===== */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .card {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.6rem;
+      transition: all .25s;
+      position: relative;
+      overflow: hidden;
+    }
+    .card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: var(--card-accent, var(--accent));
+    }
+    .card:hover {
+      border-color: var(--card-accent, var(--accent));
+      transform: translateY(-4px);
+      box-shadow: var(--shadow);
+    }
+
+    .card-icon { font-size: 1.8rem; margin-bottom: .8rem; }
+    .card h3 { font-size: 1rem; font-weight: 700; margin-bottom: .4rem; }
+    .card p { font-size: .85rem; color: var(--muted); line-height: 1.6; }
+
+    .card-tag {
+      display: inline-block; margin-top: .8rem;
+      padding: .2rem .6rem;
+      border-radius: 4px;
+      font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+      background: rgba(255,153,0,.1); color: var(--accent);
+    }
+
+    /* ===== CODE TABS ===== */
+    .code-block {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .code-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg3);
+      padding: 0 1rem;
+      gap: .25rem;
+      overflow-x: auto;
+    }
+    .tab {
+      padding: .7rem 1rem;
+      font-size: .8rem; font-weight: 600;
+      color: var(--muted);
+      cursor: pointer; border: none; background: none;
+      border-bottom: 2px solid transparent;
+      transition: all .2s; white-space: nowrap;
+    }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab:hover:not(.active) { color: var(--text); }
+
+    .code-panel {
+      display: none;
+      padding: 1.5rem;
+      overflow-x: auto;
+    }
+    .code-panel.active { display: block; }
+
+    pre {
+      font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      font-size: .8rem; line-height: 1.75;
+      white-space: pre;
+    }
+
+    /* Syntax colours */
+    .kw  { color: #ff79c6; }
+    .str { color: #f1fa8c; }
+    .num { color: #bd93f9; }
+    .key { color: #8be9fd; }
+    .cmt { color: #6272a4; font-style: italic; }
+    .val { color: #50fa7b; }
+    .op  { color: #ff79c6; }
+
+    /* ===== ARCHITECTURE DIAGRAM ===== */
+    .arch-diagram {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem;
+    }
+
+    .flow {
+      display: flex; align-items: center; justify-content: center;
+      flex-wrap: wrap; gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .flow-box {
+      padding: .7rem 1.2rem;
+      border-radius: 8px;
+      font-size: .85rem; font-weight: 600; text-align: center;
+      min-width: 110px;
+    }
+    .flow-arrow {
+      display: flex; flex-direction: column; align-items: center;
+      color: var(--muted); font-size: .7rem; gap: .2rem;
+    }
+    .flow-arrow .arr { font-size: 1.2rem; color: var(--accent); }
+    .flow-note { font-size: .65rem; color: var(--muted); }
+
+    .flow-box.app   { background: rgba(77,159,236,.12); color: var(--blue); border: 1px solid rgba(77,159,236,.3); }
+    .flow-box.idp   { background: rgba(155,89,182,.12); color: var(--purple); border: 1px solid rgba(155,89,182,.3); }
+    .flow-box.sts   { background: rgba(0,199,183,.12); color: var(--accent2); border: 1px solid rgba(0,199,183,.3); }
+    .flow-box.dynamo{ background: rgba(255,153,0,.12); color: var(--accent); border: 1px solid rgba(255,153,0,.3); }
+    .flow-box.iam   { background: rgba(39,174,96,.12); color: var(--green); border: 1px solid rgba(39,174,96,.3); }
+
+    .arch-legend {
+      display: flex; gap: 1.5rem; flex-wrap: wrap; justify-content: center;
+      margin-top: 1rem;
+    }
+    .legend-item {
+      display: flex; align-items: center; gap: .4rem;
+      font-size: .78rem; color: var(--muted);
+    }
+    .legend-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+
+    /* ===== QUICK START ===== */
+    .steps-list { display: flex; flex-direction: column; gap: 1.2rem; }
+    .step {
+      display: flex; gap: 1.2rem; align-items: flex-start;
+    }
+    .step-num {
+      width: 36px; height: 36px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--accent), #ffcc44);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: .85rem; font-weight: 800; color: #000;
+    }
+    .step-body h4 { font-size: .95rem; font-weight: 700; margin-bottom: .25rem; }
+    .step-body p  { font-size: .85rem; color: var(--muted); }
+    .inline-code {
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: .8rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: .15rem .4rem;
+      border-radius: 4px;
+      color: var(--accent2);
+    }
+
+    /* ===== FEATURES TABLE ===== */
+    table {
+      width: 100%; border-collapse: collapse;
+      font-size: .875rem;
+    }
+    th {
+      text-align: left; padding: .8rem 1rem;
+      background: var(--surface); color: var(--muted);
+      font-size: .75rem; text-transform: uppercase; letter-spacing: .08em;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: .8rem 1rem;
+      border-bottom: 1px solid rgba(36,48,80,.5);
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.015); }
+    .check { color: var(--green); font-size: 1rem; }
+    .cross { color: var(--muted); }
+
+    .table-wrap {
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    /* ===== TECH STACK PILLS ===== */
+    .pills { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1rem; }
+    .pill {
+      padding: .35rem .85rem;
+      border-radius: 20px;
+      font-size: .78rem; font-weight: 600;
+      border: 1px solid;
+    }
+    .pill-orange { background: rgba(255,153,0,.1); color: var(--accent); border-color: rgba(255,153,0,.3); }
+    .pill-teal   { background: rgba(0,199,183,.1); color: var(--accent2); border-color: rgba(0,199,183,.3); }
+    .pill-blue   { background: rgba(77,159,236,.1); color: var(--blue); border-color: rgba(77,159,236,.3); }
+    .pill-purple { background: rgba(155,89,182,.1); color: var(--purple); border-color: rgba(155,89,182,.3); }
+    .pill-green  { background: rgba(39,174,96,.1); color: var(--green); border-color: rgba(39,174,96,.3); }
+
+    /* ===== CTA ===== */
+    .cta-section {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      text-align: center;
+      padding: 5rem 1.5rem;
+      position: relative; overflow: hidden;
+    }
+    .cta-section::before {
+      content: '';
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse 60% 80% at 50% 50%, rgba(255,153,0,.06) 0%, transparent 70%);
+    }
+    .cta-section .container { position: relative; z-index: 1; }
+    .cta-section h2 { font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 800; margin-bottom: 1rem; }
+    .cta-section p { color: var(--muted); max-width: 500px; margin: 0 auto 2rem; }
+    .cta-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+
+    /* ===== FOOTER ===== */
+    footer {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      font-size: .82rem; color: var(--muted);
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+    .footer-links { display: flex; gap: 1.5rem; justify-content: center; margin-bottom: .8rem; flex-wrap: wrap; }
+
+    /* ===== DIVIDER ===== */
+    .divider { border: none; border-top: 1px solid var(--border); }
+
+    /* ===== ANIMATIONS ===== */
+    .fade-in {
+      opacity: 0; transform: translateY(20px);
+      transition: opacity .6s ease, transform .6s ease;
+    }
+    .fade-in.visible { opacity: 1; transform: translateY(0); }
+
+    /* ===== TERMINAL WIDGET ===== */
+    .terminal {
+      background: #0a0e1a;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+    .terminal-bar {
+      background: var(--bg3);
+      padding: .5rem 1rem;
+      display: flex; align-items: center; gap: .4rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot-r { background: #ff5f57; }
+    .dot-y { background: #febc2e; }
+    .dot-g { background: #28c840; }
+    .terminal-title { font-size: .75rem; color: var(--muted); margin-left: .5rem; font-family: monospace; }
+    .terminal-body { padding: 1.2rem 1.4rem; font-family: 'Cascadia Code','Fira Code',monospace; font-size: .8rem; line-height: 1.9; }
+    .t-prompt { color: var(--accent2); }
+    .t-cmd { color: var(--text); }
+    .t-out { color: var(--muted); }
+    .t-success { color: var(--green); }
+    .t-url { color: var(--blue); text-decoration: underline; }
+
+    /* ===== RESPONSIVE ===== */
+    @media (max-width: 640px) {
+      nav { padding: 0 1rem; }
+      .nav-links { gap: .8rem; }
+      .nav-links a:not(.btn) { display: none; }
+      .hero h1 { font-size: 2.1rem; }
+      .flow { gap: .5rem; }
+      .flow-box { min-width: 80px; font-size: .75rem; padding: .5rem .75rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav>
+    <a href="#" class="nav-logo">
+      <span class="shield">🛡️</span>
+      <span>Dynamo<strong>Shield</strong></span>
+    </a>
+    <div class="nav-links">
+      <a href="#how-it-works">How It Works</a>
+      <a href="#policies">Policies</a>
+      <a href="#quickstart">Quick Start</a>
+      <a href="https://github.com/ihatesea69/dynamo-shield/tree/master/docs" target="_blank">Docs</a>
+      <a href="https://github.com/ihatesea69/dynamo-shield" target="_blank" class="btn btn-ghost">
+        <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    <div class="hero-content fade-in">
+      <div class="hero-badge">🔐 AWS Security · IAM · DynamoDB</div>
+      <h1>Fine-Grained Access Control<br>for <span class="gradient-text">Amazon DynamoDB</span></h1>
+      <p>
+        Eliminate your proxy tier. Enforce row-level and attribute-level security
+        directly with IAM conditions — no middleware, no extra latency.
+      </p>
+      <div class="hero-actions">
+        <a href="https://github.com/ihatesea69/dynamo-shield" target="_blank" class="btn btn-primary">
+          ⭐ Star on GitHub
+        </a>
+        <a href="#quickstart" class="btn btn-ghost">Quick Start →</a>
+      </div>
+      <div class="hero-stats">
+        <div class="stat">
+          <div class="stat-value">4</div>
+          <div class="stat-label">Policy Types</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">0</div>
+          <div class="stat-label">Proxy Servers</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">IaC</div>
+          <div class="stat-label">Terraform</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">MIT</div>
+          <div class="stat-label">License</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROBLEM / SOLUTION -->
+  <section id="how-it-works" style="background: var(--bg2); border-top: 1px solid var(--border);">
+    <div class="container">
+      <div class="section-head fade-in">
+        <div class="section-label">The Problem</div>
+        <h2 class="section-title">Drop the Proxy. Keep the Security.</h2>
+        <p class="section-sub">
+          Traditional DynamoDB apps required a proxy server just to regulate per-user access.
+          Fine-Grained Access Control moves that logic into IAM — where it belongs.
+        </p>
+      </div>
+
+      <div class="split fade-in">
+        <div class="arch-box bad">
+          <div class="label">❌ Before — Proxy Architecture</div>
+          <div class="arch-row">
+            <span class="arch-node node-app">📱 App</span>
+            <span class="arrow">──▶</span>
+            <span class="arch-node node-proxy">🔀 Proxy</span>
+            <span class="arrow">──▶</span>
+            <span class="arch-node node-db">⚡ DynamoDB</span>
+          </div>
+          <p class="note">⚠ Extra hop: added latency, ops burden, and cost. The proxy does nothing but check user IDs.</p>
+        </div>
+
+        <div class="arch-box good">
+          <div class="label">✅ After — FGAC Direct Access</div>
+          <div class="arch-row">
+            <span class="arch-node node-app">📱 App</span>
+            <span class="arrow">──▶</span>
+            <span class="arch-node node-sts">🔑 STS</span>
+            <span class="arrow">──▶</span>
+            <span class="arch-node node-db">⚡ DynamoDB</span>
+          </div>
+          <div class="arch-row" style="margin-top:.5rem; font-size:.72rem; color:var(--muted);">
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+            <span class="arch-node node-iam" style="font-size:.7rem; padding:.2rem .5rem;">IAM evaluates FGAC inline</span>
+          </div>
+          <p class="note">✔ Zero proxy. IAM conditions enforce row & attribute restrictions at the DynamoDB API level.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ARCHITECTURE DIAGRAM -->
+  <section>
+    <div class="container">
+      <div class="section-head fade-in">
+        <div class="section-label">Architecture</div>
+        <h2 class="section-title">How It Flows</h2>
+      </div>
+      <div class="arch-diagram fade-in">
+        <div class="flow">
+          <div class="flow-box app">📱<br><small>Mobile/Web App</small></div>
+          <div class="flow-arrow">
+            <span class="arr">→</span>
+            <span class="flow-note">Authenticate</span>
+          </div>
+          <div class="flow-box idp">🔐<br><small>Cognito / IdP</small></div>
+          <div class="flow-arrow">
+            <span class="arr">→</span>
+            <span class="flow-note">OIDC token</span>
+          </div>
+          <div class="flow-box sts">☁️<br><small>AWS STS</small></div>
+          <div class="flow-arrow">
+            <span class="arr">→</span>
+            <span class="flow-note">Temp creds</span>
+          </div>
+          <div class="flow-box dynamo">⚡<br><small>DynamoDB</small></div>
+        </div>
+        <div class="flow">
+          <div style="flex:1"></div>
+          <div style="flex:1"></div>
+          <div class="flow-arrow" style="flex-direction:column;">
+            <span class="arr" style="transform:rotate(90deg);">→</span>
+          </div>
+          <div class="flow-box iam" style="font-size:.78rem;">🛡️ IAM FGAC Policy<br><small>Conditions enforced here</small></div>
+          <div style="flex:1"></div>
+        </div>
+        <div class="arch-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div> App/Client</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--purple)"></div> Identity Provider</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent2)"></div> AWS STS (temp creds)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> IAM Policy Evaluation</div>
+          <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div> DynamoDB Table</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- POLICY CARDS -->
+  <section id="policies" style="background: var(--bg2); border-top: 1px solid var(--border);">
+    <div class="container">
+      <div class="section-head fade-in">
+        <div class="section-label">Policy Types</div>
+        <h2 class="section-title">Four Modes of Control</h2>
+        <p class="section-sub">Choose the policy that matches your app's access model. Switch any time with a single Terraform variable.</p>
+      </div>
+      <div class="cards-grid fade-in">
+        <div class="card" style="--card-accent: var(--blue)">
+          <div class="card-icon">↔️</div>
+          <h3>Horizontal</h3>
+          <p>Each user can only access their own rows. Uses <code class="inline-code">dynamodb:LeadingKeys</code> to match the Cognito identity.</p>
+          <div class="card-tag">Row-Level</div>
+        </div>
+        <div class="card" style="--card-accent: var(--purple)">
+          <div class="card-icon">↕️</div>
+          <h3>Vertical</h3>
+          <p>All rows are accessible, but only whitelisted attributes are returned. Hides sensitive fields from clients.</p>
+          <div class="card-tag">Attribute-Level</div>
+        </div>
+        <div class="card" style="--card-accent: var(--accent)">
+          <div class="card-icon">⊕</div>
+          <h3>Combined</h3>
+          <p>Both row-level and attribute-level restrictions in one policy. The most common pattern for production apps.</p>
+          <div class="card-tag">Default · Recommended</div>
+        </div>
+        <div class="card" style="--card-accent: var(--green)">
+          <div class="card-icon">👁️</div>
+          <h3>Read-Only</h3>
+          <p>Like horizontal, but permits only <code class="inline-code">GetItem</code>, <code class="inline-code">Query</code>, and <code class="inline-code">BatchGetItem</code>. Zero write access.</p>
+          <div class="card-tag">Read-Only</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CODE TABS -->
+  <section>
+    <div class="container">
+      <div class="section-head fade-in">
+        <div class="section-label">Example Policies</div>
+        <h2 class="section-title">Production-Ready IAM Conditions</h2>
+      </div>
+      <div class="code-block fade-in">
+        <div class="code-tabs">
+          <button class="tab active" onclick="switchTab('horizontal', this)">Horizontal</button>
+          <button class="tab" onclick="switchTab('vertical', this)">Vertical</button>
+          <button class="tab" onclick="switchTab('combined', this)">Combined</button>
+          <button class="tab" onclick="switchTab('terraform', this)">Terraform</button>
+        </div>
+
+        <div id="tab-horizontal" class="code-panel active">
+<pre><span class="cmt">// horizontal_access.json — Row-level: users own their items</span>
+{
+  <span class="key">"Version"</span>: <span class="str">"2012-10-17"</span>,
+  <span class="key">"Statement"</span>: [{
+    <span class="key">"Sid"</span>: <span class="str">"HorizontalAccessOwnItems"</span>,
+    <span class="key">"Effect"</span>: <span class="str">"Allow"</span>,
+    <span class="key">"Action"</span>: [
+      <span class="str">"dynamodb:GetItem"</span>, <span class="str">"dynamodb:Query"</span>,
+      <span class="str">"dynamodb:PutItem"</span>, <span class="str">"dynamodb:UpdateItem"</span>
+    ],
+    <span class="key">"Resource"</span>: <span class="str">"arn:aws:dynamodb:*:*:table/GameScores"</span>,
+    <span class="key">"Condition"</span>: {
+      <span class="key">"ForAllValues:StringEquals"</span>: {
+        <span class="key">"dynamodb:LeadingKeys"</span>: [
+          <span class="str">"${cognito-identity.amazonaws.com:sub}"</span>
+        ]
+      }
+    }
+  }]
+}</pre>
+        </div>
+
+        <div id="tab-vertical" class="code-panel">
+<pre><span class="cmt">// vertical_access.json — Attribute-level: restrict visible columns</span>
+{
+  <span class="key">"Version"</span>: <span class="str">"2012-10-17"</span>,
+  <span class="key">"Statement"</span>: [{
+    <span class="key">"Sid"</span>: <span class="str">"VerticalAccessAllowedAttributes"</span>,
+    <span class="key">"Effect"</span>: <span class="str">"Allow"</span>,
+    <span class="key">"Action"</span>: [<span class="str">"dynamodb:GetItem"</span>, <span class="str">"dynamodb:Query"</span>],
+    <span class="key">"Resource"</span>: <span class="str">"arn:aws:dynamodb:*:*:table/GameScores"</span>,
+    <span class="key">"Condition"</span>: {
+      <span class="key">"ForAllValues:StringEquals"</span>: {
+        <span class="key">"dynamodb:Attributes"</span>: [
+          <span class="str">"UserId"</span>, <span class="str">"GameTitle"</span>,
+          <span class="str">"Score"</span>, <span class="str">"Wins"</span>, <span class="str">"Losses"</span>
+        ]
+      },
+      <span class="key">"StringEqualsIfExists"</span>: {
+        <span class="key">"dynamodb:Select"</span>: <span class="str">"SPECIFIC_ATTRIBUTES"</span>
+      }
+    }
+  }]
+}</pre>
+        </div>
+
+        <div id="tab-combined" class="code-panel">
+<pre><span class="cmt">// combined_access.json — Row + attribute restrictions together</span>
+{
+  <span class="key">"Version"</span>: <span class="str">"2012-10-17"</span>,
+  <span class="key">"Statement"</span>: [{
+    <span class="key">"Sid"</span>: <span class="str">"CombinedHorizontalAndVerticalAccess"</span>,
+    <span class="key">"Effect"</span>: <span class="str">"Allow"</span>,
+    <span class="key">"Action"</span>: [
+      <span class="str">"dynamodb:GetItem"</span>, <span class="str">"dynamodb:Query"</span>,
+      <span class="str">"dynamodb:PutItem"</span>, <span class="str">"dynamodb:UpdateItem"</span>
+    ],
+    <span class="key">"Resource"</span>: <span class="str">"arn:aws:dynamodb:*:*:table/GameScores"</span>,
+    <span class="key">"Condition"</span>: {
+      <span class="key">"ForAllValues:StringEquals"</span>: {
+        <span class="key">"dynamodb:LeadingKeys"</span>: [<span class="str">"${cognito-identity.amazonaws.com:sub}"</span>],
+        <span class="key">"dynamodb:Attributes"</span>: [
+          <span class="str">"UserId"</span>, <span class="str">"GameTitle"</span>, <span class="str">"Score"</span>, <span class="str">"Wins"</span>, <span class="str">"Losses"</span>
+        ]
+      }
+    }
+  }]
+}</pre>
+        </div>
+
+        <div id="tab-terraform" class="code-panel">
+<pre><span class="cmt"># terraform/terraform.tfvars</span>
+<span class="key">aws_region</span>               = <span class="str">"us-east-1"</span>
+<span class="key">project_name</span>             = <span class="str">"my-game-app"</span>
+<span class="key">environment</span>              = <span class="str">"prod"</span>
+<span class="key">table_name</span>               = <span class="str">"GameScores"</span>
+<span class="key">billing_mode</span>             = <span class="str">"PAY_PER_REQUEST"</span>
+<span class="key">cognito_identity_pool_id</span> = <span class="str">"us-east-1:xxxx-xxxx"</span>
+
+<span class="cmt"># Switch between: horizontal | vertical | combined | read_only</span>
+<span class="key">access_policy_type</span>       = <span class="str">"combined"</span>
+
+<span class="cmt">---</span>
+<span class="cmt"># Then just run:</span>
+<span class="val">$ terraform init &amp;&amp; terraform apply</span>
+
+<span class="cmt"># Outputs:</span>
+<span class="val">dynamodb_table_name = "GameScores"</span>
+<span class="val">dynamodb_table_arn  = "arn:aws:dynamodb:us-east-1:1234:table/GameScores"</span>
+<span class="val">iam_role_arn        = "arn:aws:iam::1234:role/my-game-app-prod-fgac-role"</span></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUICK START -->
+  <section id="quickstart" style="background: var(--bg2); border-top: 1px solid var(--border);">
+    <div class="container">
+      <div class="split">
+        <div class="fade-in">
+          <div class="section-label">Quick Start</div>
+          <h2 class="section-title">Up in 3 Commands</h2>
+          <p class="section-sub" style="margin-bottom: 2rem;">
+            Clone, configure, deploy. The DynamoDB table and all IAM roles are ready in minutes.
+          </p>
+          <div class="steps-list">
+            <div class="step">
+              <div class="step-num">1</div>
+              <div class="step-body">
+                <h4>Clone &amp; configure</h4>
+                <p>Copy <span class="inline-code">example.tfvars</span> → <span class="inline-code">terraform.tfvars</span> and add your Cognito Identity Pool ID.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">2</div>
+              <div class="step-body">
+                <h4>Run <span class="inline-code">terraform init</span></h4>
+                <p>Downloads the AWS provider and initialises the backend. Takes ~15 seconds.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">3</div>
+              <div class="step-body">
+                <h4>Run <span class="inline-code">terraform apply</span></h4>
+                <p>Creates 4 AWS resources: table, IAM role, policy, attachment. Output includes all ARNs.</p>
+              </div>
+            </div>
+            <div class="step">
+              <div class="step-num">4</div>
+              <div class="step-body">
+                <h4>Integrate in your app</h4>
+                <p>Use the role ARN with <span class="inline-code">AssumeRoleWithWebIdentity</span>. See <a href="https://github.com/ihatesea69/dynamo-shield/blob/master/docs/usage.md" style="color:var(--accent2)">usage.md</a> for JS + Python examples.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fade-in">
+          <div class="terminal">
+            <div class="terminal-bar">
+              <div class="dot dot-r"></div>
+              <div class="dot dot-y"></div>
+              <div class="dot dot-g"></div>
+              <span class="terminal-title">~/dynamo-shield/terraform</span>
+            </div>
+            <div class="terminal-body">
+              <div><span class="t-prompt">$</span> <span class="t-cmd">git clone https://github.com/ihatesea69/dynamo-shield</span></div>
+              <div class="t-out">Cloning into 'dynamo-shield'...</div>
+              <br>
+              <div><span class="t-prompt">$</span> <span class="t-cmd">cp example.tfvars terraform.tfvars</span></div>
+              <div><span class="t-prompt">$</span> <span class="t-cmd">terraform init</span></div>
+              <div class="t-success">✓ Initializing provider plugins...</div>
+              <div class="t-success">✓ Terraform has been successfully initialized!</div>
+              <br>
+              <div><span class="t-prompt">$</span> <span class="t-cmd">terraform apply -auto-approve</span></div>
+              <div class="t-out">aws_dynamodb_table.game_scores: Creating...</div>
+              <div class="t-out">aws_iam_role.dynamodb_fgac: Creating...</div>
+              <div class="t-out">aws_iam_policy.dynamodb_fgac: Creating...</div>
+              <div class="t-success">Apply complete! Resources: 4 added.</div>
+              <br>
+              <div class="t-out">Outputs:</div>
+              <div class="t-out">dynamodb_table_name = "GameScores"</div>
+              <div class="t-out">iam_role_arn = <span class="t-url">"arn:aws:iam::..."</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES TABLE -->
+  <section>
+    <div class="container">
+      <div class="section-head fade-in">
+        <div class="section-label">What's Included</div>
+        <h2 class="section-title">Everything You Need</h2>
+      </div>
+      <div class="table-wrap fade-in">
+        <table>
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>Without FGAC</th>
+              <th>With Dynamo Shield</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Row-level isolation per user</td><td class="cross">✗ Manual proxy logic</td><td class="check">✓ IAM condition</td></tr>
+            <tr><td>Attribute-level access control</td><td class="cross">✗ Proxy filter code</td><td class="check">✓ IAM condition</td></tr>
+            <tr><td>Temporary credentials</td><td class="cross">✗ Long-lived keys</td><td class="check">✓ STS + Cognito</td></tr>
+            <tr><td>Zero extra latency</td><td class="cross">✗ Proxy hop</td><td class="check">✓ Direct API call</td></tr>
+            <tr><td>Infrastructure as Code</td><td class="cross">✗ Click-ops</td><td class="check">✓ Terraform modules</td></tr>
+            <tr><td>Server-side encryption</td><td class="cross">✗ Optional</td><td class="check">✓ Always on</td></tr>
+            <tr><td>Point-in-Time Recovery</td><td class="cross">✗ Optional</td><td class="check">✓ Enabled by default</td></tr>
+            <tr><td>CI/CD validation</td><td class="cross">✗ None</td><td class="check">✓ GitHub Actions</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="pills fade-in" style="margin-top: 2.5rem; justify-content: center;">
+        <span class="pill pill-orange">Terraform ≥ 1.5</span>
+        <span class="pill pill-teal">AWS Provider ~5.0</span>
+        <span class="pill pill-blue">Amazon DynamoDB</span>
+        <span class="pill pill-purple">AWS IAM + STS</span>
+        <span class="pill pill-green">Cognito Identity</span>
+        <span class="pill pill-orange">GitHub Actions</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <div class="cta-section">
+    <div class="container">
+      <h2>Ready to <span class="gradient-text">Ship Secure</span>?</h2>
+      <p>Deploy production-grade DynamoDB access control in minutes. No proxy required.</p>
+      <div class="cta-actions">
+        <a href="https://github.com/ihatesea69/dynamo-shield" target="_blank" class="btn btn-primary">
+          ⭐ View on GitHub
+        </a>
+        <a href="https://github.com/ihatesea69/dynamo-shield/blob/master/docs/usage.md" target="_blank" class="btn btn-ghost">
+          📖 Read the Docs
+        </a>
+        <a href="https://github.com/ihatesea69/dynamo-shield/archive/refs/heads/master.zip" class="btn btn-ghost">
+          ⬇️ Download ZIP
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-links">
+      <a href="https://github.com/ihatesea69/dynamo-shield" target="_blank">GitHub</a>
+      <a href="https://github.com/ihatesea69/dynamo-shield/blob/master/docs/architecture.md" target="_blank">Architecture</a>
+      <a href="https://github.com/ihatesea69/dynamo-shield/blob/master/docs/usage.md" target="_blank">Usage Guide</a>
+      <a href="https://github.com/ihatesea69/dynamo-shield/tree/master/examples/game_scores" target="_blank">Example</a>
+      <a href="https://aws.amazon.com/blogs/aws/fine-grained-access-control-for-amazon-dynamodb/" target="_blank">AWS Blog</a>
+      <a href="https://github.com/ihatesea69/dynamo-shield/blob/master/LICENSE" target="_blank">MIT License</a>
+    </div>
+    <p>Built with ❤️ using Terraform · <a href="https://github.com/ihatesea69/dynamo-shield" target="_blank">ihatesea69/dynamo-shield</a></p>
+  </footer>
+
+  <script>
+    // Tab switching
+    function switchTab(name, btn) {
+      document.querySelectorAll('.code-panel').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.getElementById('tab-' + name).classList.add('active');
+      btn.classList.add('active');
+    }
+
+    // Scroll-triggered fade-in
+    const observer = new IntersectionObserver(
+      entries => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }),
+      { threshold: 0.12 }
+    );
+    document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+    // Smooth nav highlight
+    const sections = document.querySelectorAll('section[id]');
+    const navLinks = document.querySelectorAll('.nav-links a[href^="#"]');
+    window.addEventListener('scroll', () => {
+      let current = '';
+      sections.forEach(s => { if (window.scrollY >= s.offsetTop - 100) current = s.id; });
+      navLinks.forEach(a => {
+        a.style.color = a.getAttribute('href') === '#' + current ? 'var(--text)' : '';
+      });
+    });
+  </script>
+</body>
+</html>

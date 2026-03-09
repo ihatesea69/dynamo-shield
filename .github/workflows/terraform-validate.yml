@@ -1,0 +1,44 @@
+name: Terraform Validate
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1.5"
+
+      - name: Terraform Format Check (root)
+        run: terraform fmt -check -recursive
+        working-directory: terraform
+
+      - name: Terraform Init (root module)
+        run: terraform init -backend=false
+        working-directory: terraform
+
+      - name: Terraform Validate (root module)
+        run: terraform validate
+        working-directory: terraform
+
+      - name: Terraform Init (example)
+        run: terraform init -backend=false
+        working-directory: examples/game_scores
+
+      - name: Terraform Validate (example)
+        run: terraform validate
+        working-directory: examples/game_scores
